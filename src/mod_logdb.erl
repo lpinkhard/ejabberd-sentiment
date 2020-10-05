@@ -3,6 +3,8 @@
 %%% Author  : Oleg Palij (mailto:o.palij@gmail.com)
 %%% Purpose : Frontend for log user messages to db
 %%% Url     : https://paleg.github.io/mod_logdb/
+%%%
+%%% Modified for YoV by Lionel Pinkhard (mailto:lionelpinkhard@me.com)
 %%%----------------------------------------------------------------------
 
 -module(mod_logdb).
@@ -35,6 +37,8 @@
 %
 -export([get_vhost_stats/1, get_vhost_stats_at/2,
          get_user_stats/2, get_user_messages_at/3,
+         get_vhost_metrics/1, get_vhost_metrics_at/2,
+         get_user_metrics/2,
          get_dates/1,
          sort_stats/1,
          convert_timestamp/1, convert_timestamp_brief/1,
@@ -47,14 +51,18 @@
          purge_old_records/2]).
 % webadmin hooks
 -export([webadmin_menu/3,
-         webadmin_user/4,
+         webadmin_menu_metrics/3,
+	 webadmin_user/4,
          webadmin_page/3,
          user_parse_query/5]).
 % webadmin queries
 -export([vhost_messages_stats/3,
          vhost_messages_stats_at/4,
          user_messages_stats/4,
-         user_messages_stats_at/5]).
+         user_messages_stats_at/5,
+	 vhost_metrics/3,
+	 vhost_metrics_at/4,
+	 user_metrics/4]).
 
 -include("mod_logdb.hrl").
 -include("xmpp.hrl").
@@ -162,6 +170,7 @@ cleanup(#state{vhost=VHost} = _State) ->
     ejabberd_hooks:delete(disco_local_features, VHost, ?MODULE, get_local_features, 50),
     ejabberd_hooks:delete(disco_local_items, VHost, ?MODULE, get_local_items, 50),
 
+    ejabberd_hooks:delete(webadmin_menu_host, VHost, ?MODULE, webadmin_menu_metrics, 75),
     ejabberd_hooks:delete(webadmin_menu_host, VHost, ?MODULE, webadmin_menu, 70),
     ejabberd_hooks:delete(webadmin_user, VHost, ?MODULE, webadmin_user, 50),
     ejabberd_hooks:delete(webadmin_page_host, VHost, ?MODULE, webadmin_page, 50),
@@ -242,6 +251,15 @@ handle_call({get_user_stats, User}, _From, #state{dbmod=DBMod, vhost=VHost}=Stat
     {reply, Reply, State};
 handle_call({get_user_messages_at, User, Date}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
     Reply = DBMod:get_user_messages_at(binary_to_list(User), VHost, binary_to_list(Date)),
+    {reply, Reply, State};
+handle_call({get_vhost_metrics}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
+    Reply = DBMod:get_vhost_metrics(VHost),
+    {reply, Reply, State};
+handle_call({get_vhost_metrics_at, Date}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
+    Reply = DBMod:get_vhost_metrics_at(VHost, binary_to_list(Date)),
+    {reply, Reply, State};
+handle_call({get_user_metrics, User}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
+    Reply = DBMod:get_user_metrics(binary_to_list(User), VHost),
     {reply, Reply, State};
 handle_call({get_user_settings, User}, _From, #state{dbmod=_DBMod, vhost=VHost}=State) ->
     Reply = case ets:match_object(ets_settings_table(VHost),
@@ -420,7 +438,8 @@ handle_info(start, #state{dbmod=DBMod, vhost=VHost}=State) ->
            ejabberd_hooks:add(adhoc_local_items, VHost, ?MODULE, adhoc_local_items, 50),
 
            ejabberd_hooks:add(webadmin_menu_host, VHost, ?MODULE, webadmin_menu, 70),
-           ejabberd_hooks:add(webadmin_user, VHost, ?MODULE, webadmin_user, 50),
+           ejabberd_hooks:add(webadmin_menu_host, VHost, ?MODULE, webadmin_menu_metrics, 75),
+	   ejabberd_hooks:add(webadmin_user, VHost, ?MODULE, webadmin_user, 50),
            ejabberd_hooks:add(webadmin_page_host, VHost, ?MODULE, webadmin_page, 50),
            ejabberd_hooks:add(webadmin_user_parse_query, VHost, ?MODULE, user_parse_query, 50),
 
@@ -702,6 +721,18 @@ get_user_stats(User, VHost) ->
 get_user_messages_at(User, VHost, Date) ->
     Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
     gen_server:call(Proc, {get_user_messages_at, User, Date}, ?CALL_TIMEOUT).
+
+get_vhost_metrics(VHost) ->
+    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+    gen_server:call(Proc, {get_vhost_metrics}, ?CALL_TIMEOUT).
+
+get_vhost_metrics_at(VHost, Date) ->
+    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+    gen_server:call(Proc, {get_vhost_metrics_at, Date}, ?CALL_TIMEOUT).
+
+get_user_metrics(User, VHost) ->
+    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+    gen_server:call(Proc, {get_user_metrics, User}, ?CALL_TIMEOUT).
 
 get_dates(VHost) ->
     Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
@@ -1579,7 +1610,10 @@ get_all_vh_users(Host, Server) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 webadmin_menu(Acc, _Host, Lang) ->
-    [{<<"messages">>, ?T(<<"Users Messages">>)} | Acc].
+    [{<<"messages">>, ?T(<<"User Messages">>)} | Acc].
+
+webadmin_menu_metrics(Acc, _Host, Lang) ->
+    [{<<"metrics">>, ?T(<<"Metrics">>)} | Acc].
 
 webadmin_user(Acc, User, Server, Lang) ->
     Sett = get_user_settings(User, Server),
@@ -1616,6 +1650,24 @@ webadmin_page(_, Host,
                        q = Query,
                        lang = Lang}) ->
     Res = mod_logdb:user_messages_stats_at(U, Host, Query, Lang, Date),
+    {stop, Res};
+webadmin_page(_, Host,
+              #request{path = [<<"metrics">>],
+                       q = Query,
+                       lang = Lang}) ->
+    Res = vhost_metrics(Host, Query, Lang),
+    {stop, Res};
+webadmin_page(_, Host,
+              #request{path = [<<"metrics">>, Date],
+                       q = Query,
+                       lang = Lang}) ->
+    Res = vhost_metrics_at(Host, Query, Lang, Date),
+    {stop, Res};
+webadmin_page(_, Host,
+              #request{path = [<<"user">>, U, <<"metrics">>],
+                       q = Query,
+                       lang = Lang}) ->
+    Res = user_metrics(U, Host, Query, Lang),
     {stop, Res};
 webadmin_page(Acc, _Host, _R) -> Acc.
 
@@ -1950,3 +2002,165 @@ user_messages_stats_at(User, Server, Query, Lang, Date) ->
              ]
             )]
     end.
+
+vhost_metrics(Server, Query, Lang) ->
+    Res = case catch vhost_messages_parse_query(Server, Query) of
+                     {'EXIT', Reason} ->
+                         ?ERROR_MSG("~p", [Reason]),
+                         error;
+                     VResult -> VResult
+          end,
+    {Time, Value} = timer:tc(mod_logdb, get_vhost_metrics, [Server]),
+    ?INFO_MSG("get_vhost_metrics(~p) elapsed ~p sec", [Server, Time/1000000]),
+    %case get_vhost_metrics(Server) of
+    case Value of
+         {'EXIT', CReason} ->
+              ?ERROR_MSG("Failed to get_vhost_metrics: ~p", [CReason]),
+              [?XC(<<"h1">>, ?T(<<"Error occupied while fetching list">>))];
+         {error, GReason} ->
+              ?ERROR_MSG("Failed to get_vhost_metrics: ~p", [GReason]),
+              [?XC(<<"h1">>, ?T(<<"Error occupied while fetching list">>))];
+         {ok, []} ->
+              [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s">>), [Server])))];
+         {ok, Dates} ->
+              Fun = fun({Date, Count}) ->
+                         DateBin = iolist_to_binary(Date),
+                         ID = misc:encode_base64( << Server/binary, DateBin/binary >> ),
+                         ?XE(<<"tr">>,
+                          [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
+                            [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
+                           ?XE(<<"td">>, [?AC(DateBin, DateBin)]),
+                           ?XC(<<"td">>, integer_to_binary(Count))
+                          ])
+                    end,
+
+              [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"Metrics for ~s">>), [Server])))] ++
+               case Res of
+                    ok -> [?CT(<<"Submitted">>), ?P];
+                    error -> [?CT(<<"Bad format">>), ?P];
+                    nothing -> []
+               end ++
+               [?XAE(<<"form">>, [{<<"action">>, <<"">>}, {<<"method">>, <<"post">>}],
+                [?XE(<<"table">>,
+                 [?XE(<<"thead">>,
+                  [?XE(<<"tr">>,
+                   [?X(<<"td">>),
+                    ?XCT(<<"td">>, <<"Date">>),
+                    ?XCT(<<"td">>, <<"Count">>)
+                   ])]),
+                  ?XE(<<"tbody">>,
+                      lists:map(Fun, Dates)
+                     )]),
+                  ?BR,
+                  ?INPUTT(<<"submit">>, <<"delete">>, <<"Delete Selected">>)
+                ])]
+   end.
+
+
+vhost_metrics_at(Server, Query, Lang, Date) ->
+   {Time, Value} = timer:tc(mod_logdb, get_vhost_metrics_at, [Server, Date]),
+   ?INFO_MSG("get_vhost_metrics_at(~p,~p) elapsed ~p sec", [Server, Date, Time/1000000]),
+   %case get_vhost_metrics_at(Server, Date) of
+   case Value of
+        {'EXIT', CReason} ->
+             ?ERROR_MSG("Failed to get_vhost_metrics_at: ~p", [CReason]),
+             [?XC(<<"h1">>, ?T(<<"Error occupied while fetching list">>))];
+        {error, GReason} ->
+             ?ERROR_MSG("Failed to get_vhost_metrics_at: ~p", [GReason]),
+             [?XC(<<"h1">>, ?T(<<"Error occupied while fetching list">>))];
+        {ok, []} ->
+             [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s at ~s">>), [Server, Date])))];
+        {ok, Stats} ->
+             Res = case catch vhost_messages_at_parse_query(Server, Date, Stats, Query) of
+                        {'EXIT', Reason} ->
+                            ?ERROR_MSG("~p", [Reason]),
+                            error;
+                        VResult -> VResult
+                   end,
+             Fun = fun({User, Count}) ->
+                         UserBin = iolist_to_binary(User),
+                         ID = misc:encode_base64( << UserBin/binary, Server/binary >> ),
+                         ?XE(<<"tr">>,
+                          [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
+                            [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
+                           ?XE(<<"td">>, [?AC(<< <<"../user/">>/binary, UserBin/binary, <<"/metrics/">>/binary, Date/binary >>, UserBin)]),
+                           ?XC(<<"td">>, integer_to_binary(Count))
+                          ])
+                   end,
+             [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"Metrics for ~s at ~s">>), [Server, Date])))] ++
+              case Res of
+                    ok -> [?CT(<<"Submitted">>), ?P];
+                    error -> [?CT(<<"Bad format">>), ?P];
+                    nothing -> []
+              end ++
+              [?XAE(<<"form">>, [{<<"action">>, <<"">>}, {<<"method">>, <<"post">>}],
+                [?XE(<<"table">>,
+                 [?XE(<<"thead">>,
+                  [?XE(<<"tr">>,
+                   [?X(<<"td">>),
+                    ?XCT(<<"td">>, <<"User">>),
+                    ?XCT(<<"td">>, <<"Count">>)
+                   ])]),
+                  ?XE(<<"tbody">>,
+                      lists:map(Fun, Stats)
+                     )]),
+                  ?BR,
+                  ?INPUTT(<<"submit">>, <<"delete">>, <<"Delete Selected">>)
+                ])]
+   end.
+
+user_metrics(User, Server, Query, Lang) ->
+        Jid = jid:encode({User, Server, ""}),
+
+    Res = case catch user_messages_parse_query(User, Server, Query) of
+               {'EXIT', Reason} ->
+                    ?ERROR_MSG("~p", [Reason]),
+                    error;
+               VResult -> VResult
+          end,
+
+   {Time, Value} = timer:tc(mod_logdb, get_user_metrics, [User, Server]),
+   ?INFO_MSG("get_user_metrics(~p,~p) elapsed ~p sec", [User, Server, Time/1000000]),
+
+   case Value of
+        {'EXIT', CReason} ->
+            ?ERROR_MSG("Failed to get_user_metrics: ~p", [CReason]),
+            [?XC(<<"h1">>, ?T(<<"Error occupied while fetching days">>))];
+        {error, GReason} ->
+            ?ERROR_MSG("Failed to get_user_metrics: ~p", [GReason]),
+            [?XC(<<"h1">>, ?T(<<"Error occupied while fetching days">>))];
+        {ok, []} ->
+            [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s">>), [Jid])))];
+        {ok, Dates} ->
+            Fun = fun({Date, Count}) ->
+                      DateBin = iolist_to_binary(Date),
+                      ID = misc:encode_base64( << User/binary, DateBin/binary >> ),
+                      ?XE(<<"tr">>,
+                       [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
+                         [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
+                        ?XE(<<"td">>, [?AC(DateBin, DateBin)]),
+                        ?XC(<<"td">>, iolist_to_binary(integer_to_list(Count)))
+                       ])
+                  end,
+            [?XC(<<"h1">>, list_to_binary(io_lib:format(?T("Metrics for ~s"), [Jid])))] ++
+             case Res of
+                   ok -> [?CT(<<"Submitted">>), ?P];
+                   error -> [?CT(<<"Bad format">>), ?P];
+                   nothing -> []
+             end ++
+             [?XAE(<<"form">>, [{<<"action">>, <<"">>}, {<<"method">>, <<"post">>}],
+              [?XE(<<"table">>,
+               [?XE(<<"thead">>,
+                [?XE(<<"tr">>,
+                 [?X(<<"td">>),
+                  ?XCT(<<"td">>, <<"Date">>),
+                  ?XCT(<<"td">>, <<"Count">>)
+                 ])]),
+                ?XE(<<"tbody">>,
+                    lists:map(Fun, Dates)
+                   )]),
+                ?BR,
+                ?INPUTT(<<"submit">>, <<"delete">>, <<"Delete Selected">>)
+              ])]
+    end.
+

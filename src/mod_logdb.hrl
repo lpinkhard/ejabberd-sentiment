@@ -3,6 +3,8 @@
 %%% Author  : Oleg Palij (mailto:o.palij@gmail.com)
 %%% Purpose :
 %%% Url     : https://paleg.github.io/mod_logdb/
+%%%
+%%% Modified for YoV by Lionel Pinkhard (mailto:lionelpinkhard@me.com)
 %%%----------------------------------------------------------------------
 
 -define(logdb_debug, true).

@@ -6,6 +6,8 @@
 %%% Author  : Oleg Palij (mailto:o.palij@gmail.com)
 %%% Purpose : Posgresql backend for mod_logdb
 %%% Url     : https://paleg.github.io/mod_logdb/
+%%%
+%%% Modified for YoV by Lionel Pinkhard (mailto:lionelpinkhard@me.com)
 %%%----------------------------------------------------------------------
 
 -module(mod_logdb_pgsql).
@@ -27,6 +29,7 @@
          rebuild_stats_at/2,
          delete_messages_by_user_at/3, delete_all_messages_by_user_at/3, delete_messages_at/2,
          get_vhost_stats/1, get_vhost_stats_at/2, get_user_stats/2, get_user_messages_at/3,
+         get_vhost_metrics/1, get_vhost_metrics_at/2, get_user_metrics/2,
          get_dates/1,
          get_users_settings/1, get_user_settings/2, set_user_settings/3,
          drop_user/2]).
@@ -289,6 +292,45 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
               {error, Reason}
       end,
     {reply, Reply, State};
+handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
+    SName = stats_table(VHost, Schema),
+    Query = ["SELECT at, sum(count) ",
+                "FROM ",SName," ",
+                "GROUP BY at ",
+                "ORDER BY DATE(at) DESC;"
+            ],
+    Reply =
+      case sql_query_internal(DBRef, Query) of
+           {data, Recs} ->
+              {ok, [ {Date, list_to_integer(Count)} || {Date, Count} <- Recs]};
+           {error, Reason} ->
+              % TODO: Duplicate error message ?
+              {error, Reason}
+      end,
+    {reply, Reply, State};
+handle_call({get_vhost_metrics_at, Date}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
+    SName = stats_table(VHost, Schema),
+    Query = ["SELECT username, sum(count) AS allcount ",
+                "FROM ",SName," ",
+                "JOIN ",users_table(VHost, Schema)," ON owner_id=user_id ",
+                "WHERE at='",Date,"' ",
+                "GROUP BY username ",
+                "ORDER BY allcount DESC;"
+            ],
+    Reply =
+      case sql_query_internal(DBRef, Query) of
+           {data, Recs} ->
+              RFun = fun({User, Count}) ->
+                          {User, list_to_integer(Count)}
+                     end,
+              {ok, lists:reverse(lists:keysort(2, lists:map(RFun, Recs)))};
+           {error, Reason} ->
+              % TODO:
+              {error, Reason}
+      end,
+    {reply, Reply, State};
+handle_call({get_user_metrics, User}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
+    {reply, get_user_metrics_int(DBRef, Schema, User, VHost), State};
 handle_call({get_dates}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
     SName = stats_table(VHost, Schema),
     Query = ["SELECT at ",
@@ -456,6 +498,15 @@ get_user_stats(User, VHost) ->
 get_user_messages_at(User, VHost, Date) ->
    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
    gen_server:call(Proc, {get_user_messages_at, User, Date}, ?CALL_TIMEOUT).
+get_vhost_metrics(VHost) ->
+   Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+   gen_server:call(Proc, {get_vhost_metrics}, ?CALL_TIMEOUT).
+get_vhost_metrics_at(VHost, Date) ->
+   Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+   gen_server:call(Proc, {get_vhost_metrics_at, Date}, ?CALL_TIMEOUT).
+get_user_metrics(User, VHost) ->
+   Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+   gen_server:call(Proc, {get_user_metrics, User}, ?CALL_TIMEOUT).
 get_dates(VHost) ->
    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
    gen_server:call(Proc, {get_dates}, ?CALL_TIMEOUT).
@@ -607,6 +658,23 @@ delete_nonexistent_stats(DBRef, Schema, VHost) ->
     end.
 
 get_user_stats_int(DBRef, Schema, User, VHost) ->
+    SName = stats_table(VHost, Schema),
+    UName = users_table(VHost, Schema),
+    Query = ["SELECT stats.at, sum(stats.count) ",
+                 "FROM ",UName," AS users ",
+                    "JOIN ",SName," AS stats ON owner_id=user_id "
+                 "WHERE users.username='",User,"' ",
+                 "GROUP BY stats.at "
+                 "ORDER BY DATE(at) DESC;"
+             ],
+    case sql_query_internal(DBRef, Query) of
+         {data, Recs} ->
+            {ok, [ {Date, list_to_integer(Count)} || {Date, Count} <- Recs ]};
+         {error, Result} ->
+            {error, Result}
+    end.
+
+get_user_metrics_int(DBRef, Schema, User, VHost) ->
     SName = stats_table(VHost, Schema),
     UName = users_table(VHost, Schema),
     Query = ["SELECT stats.at, sum(stats.count) ",
