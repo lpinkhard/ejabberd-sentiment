@@ -21,7 +21,7 @@
                 peer_name, peer_server, peer_resource,
                 direction,
                 type, subject,
-                body}).
+                body, word_count}).
 
 -record(user_settings, {owner_name,
                         dolog_default,

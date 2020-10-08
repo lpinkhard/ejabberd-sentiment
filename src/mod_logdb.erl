@@ -561,6 +561,17 @@ copy_messages_ctl(VHost, Backend, Date) ->
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+word_count([], [], _OrigSub, Acc) ->
+  Acc + 1;
+word_count([], _Sub, _OrigSub, Acc) ->
+  Acc;
+word_count(String, [], Sub, Acc) ->
+  word_count(String, Sub, Sub, Acc+1);
+word_count([X|MainTail], [X|SubTail], Sub, Acc) ->
+  word_count(MainTail, SubTail, Sub, Acc);
+word_count([_X|MainTail], [_Y|_SubTail], Sub, Acc) ->
+  word_count(MainTail, Sub, Sub, Acc).
+
 % handle_cast({addlog, E}, _)
 % raw packet -> #msg
 packet_parse(_Owner, _Peer, #message{type = error}, _Direction, _State) ->
@@ -590,6 +601,9 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
             ok
     end,
 
+    Trimmed = re:replace(string:trim(Body), "[ ]{2,}", " ", [global, {return, list}]),
+    WordCount = word_count(Trimmed, " ", " ", 0),
+
     #msg{timestamp     = get_timestamp(),
          owner_name    = stringprep:tolower(Owner#jid.user),
          peer_name     = stringprep:tolower(Peer#jid.user),
@@ -598,7 +612,8 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
          direction     = Direction,
          type          = misc:atom_to_binary(Type),
          subject       = SubjectText,
-         body          = BodyText};
+         body          = BodyText,
+         word_count    = WordCount};
 packet_parse(_, _, _, _, _) ->
     ignore.
 

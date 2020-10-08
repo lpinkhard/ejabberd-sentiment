@@ -167,6 +167,7 @@ handle_call({log_message, Msg}, _From, #state{dbref=DBRef, vhost=VHost, schema=S
                   "'", binary_to_list(Msg#msg.type), "',",
                   "'", binary_to_list( ejabberd_sql:escape(Msg#msg.subject) ), "',",
                   "'", binary_to_list( ejabberd_sql:escape(Msg#msg.body) ), "',",
+                  "'", binary_to_list( ejabberd_sql:escape(Msg#msg.word_count) ), "',",
                   "'", Msg#msg.timestamp, "');"],
 
     case sql_query_internal_silent(DBRef, Query) of
@@ -270,6 +271,7 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
                     "type,"
                     "subject,"
                     "body,"
+                    "word_count,"
                     "timestamp "
                "FROM ",view_table(VHost, Schema, Date)," "
                "WHERE owner_name='",User,"';"],
@@ -279,12 +281,12 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
               Fun = fun({Peer_name, Peer_server, Peer_resource,
                          Direction,
                          Type,
-                         Subject, Body,
+                         Subject, Body, WordCount,
                          Timestamp}) ->
                           #msg{peer_name=Peer_name, peer_server=Peer_server, peer_resource=Peer_resource,
                                direction=list_to_atom(Direction),
                                type=Type,
-                               subject=Subject, body=Body,
+                               subject=Subject, body=Body, word_count=WordCount,
                                timestamp=Timestamp}
                     end,
               {ok, lists:map(Fun, Recs)};
@@ -936,7 +938,7 @@ create_resources_table(#state{dbref=DBRef, vhost=VHost, schema=Schema}) ->
     end.
 
 create_internals(#state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
-    sql_query_internal(DBRef, ["DROP FUNCTION IF EXISTS ",logmessage_name(VHost,Schema)," (tbname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mtimestamp DOUBLE PRECISION);"]),
+    sql_query_internal(DBRef, ["DROP FUNCTION IF EXISTS ",logmessage_name(VHost,Schema)," (tbname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mword_count INTEGER, mtimestamp DOUBLE PRECISION);"]),
     case sql_query_internal(DBRef, [get_logmessage(VHost, Schema)]) of
          {updated, _} ->
             ?MYDEBUG("Created logmessage for ~p", [VHost]),
@@ -978,7 +980,7 @@ get_logmessage(VHost,Schema) ->
     SName = servers_table(VHost,Schema),
     RName = resources_table(VHost,Schema),
     StName = stats_table(VHost,Schema),
-    io_lib:format("CREATE OR REPLACE FUNCTION ~s (tbname TEXT, vname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mtimestamp DOUBLE PRECISION) RETURNS INTEGER AS $$
+    io_lib:format("CREATE OR REPLACE FUNCTION ~s (tbname TEXT, vname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mword_count INTEGER, mtimestamp DOUBLE PRECISION) RETURNS INTEGER AS $$
 DECLARE
    ownerID INTEGER;
    peer_nameID INTEGER;
@@ -1013,7 +1015,7 @@ BEGIN
    END IF;
 
    BEGIN
-      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mtimestamp || ')';
+      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, word_count, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mword_count || ',' || mtimestamp || ')';
    EXCEPTION WHEN undefined_table THEN
       EXECUTE 'CREATE TABLE ' || tablename || ' (' ||
                    'owner_id INTEGER, ' ||
@@ -1024,6 +1026,7 @@ BEGIN
                    'type VARCHAR(9) CHECK (type IN (''chat'',''error'',''groupchat'',''headline'',''normal'')), ' ||
                    'subject TEXT, ' ||
                    'body TEXT, ' ||
+                   'word_count INTEGER, ' ||
                    'timestamp DOUBLE PRECISION)';
       EXECUTE 'CREATE INDEX \"search_i_' || '~s' || '_' || atdate || '_' || '~s' || '\"' || ' ON ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id)';
 
@@ -1036,6 +1039,7 @@ BEGIN
                           'messages.type, ' ||
                           'messages.subject, ' ||
                           'messages.body, ' ||
+                          'messages.word_count, ' ||
                           'messages.timestamp ' ||
                    'FROM ' ||
                           '~s owner, ' ||
@@ -1050,7 +1054,7 @@ BEGIN
                           'resources.resource_id=messages.peer_resource_id ' ||
                    'ORDER BY messages.timestamp';
 
-      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mtimestamp || ')';
+      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, word_count, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mword_count || ',' || mtimestamp || ')';
    END;
 
    UPDATE ~s SET count=count+1 where at=atdate and owner_id=ownerID and peer_name_id=peer_nameID and peer_server_id=peer_serverID;
