@@ -1146,6 +1146,8 @@ get_result({ok, [{[$S, $E, $L, $E, $C, $T, $  | _Rest], _Rows, Recs}]}) ->
                                   float_to_list(Elem);
                                (Elem) when is_boolean(Elem) ->
                                   atom_to_list(Elem);
+                               (Elem) when Elem == null ->
+                                  integer_to_list(0);
                                (Elem) ->
                                   ?ERROR_MSG("Unknown element type ~p", [Elem]),
                                   Elem
