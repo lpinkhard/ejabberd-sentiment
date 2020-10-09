@@ -939,7 +939,8 @@ copy_messages_int_tc([FromDBMod, ToDBMod, VHost, Date]) ->
                                                               peer_resource=iolist_to_binary(Msg#msg.peer_resource),
                                                               type=iolist_to_binary(Msg#msg.type),
                                                               subject=iolist_to_binary(Msg#msg.subject),
-                                                              body=iolist_to_binary(Msg#msg.body)},
+                                                              body=iolist_to_binary(Msg#msg.body),
+                                                              word_count=iolist_to_binary(Msg#msg.word_count)},
                                           ok = ToDBMod:log_message(VHost, MsgBinary),
                                           MFAcc + 1
                                       end, 0, Msgs),
