@@ -605,7 +605,7 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
     TrimStart = re:replace(BodyText, "^ *", " ", [global, {return, list}]),
     TrimEnd = re:replace(TrimStart, " *$", " ", [global, {return, list}]),
     Trimmed = re:replace(TrimEnd, "[ ]{2,}", " ", [global, {return, list}]),
-    WordCount = word_count(Trimmed, " ", " ", 0),
+    WordCount = word_count(Trimmed, " ", " ", -1),
 
     #msg{timestamp     = get_timestamp(),
          owner_name    = stringprep:tolower(Owner#jid.user),
@@ -2042,14 +2042,15 @@ vhost_metrics(Server, Query, Lang) ->
          {ok, []} ->
               [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s">>), [Server])))];
          {ok, Dates} ->
-              Fun = fun({Date, Count}) ->
+              Fun = fun({Date, Count, WordCount}) ->
                          DateBin = iolist_to_binary(Date),
                          ID = misc:encode_base64( << Server/binary, DateBin/binary >> ),
                          ?XE(<<"tr">>,
                           [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
                             [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
                            ?XE(<<"td">>, [?AC(DateBin, DateBin)]),
-                           ?XC(<<"td">>, integer_to_binary(Count))
+                           ?XC(<<"td">>, integer_to_binary(Count)),
+                           ?XC(<<"td">>, integer_to_binary(WordCount))
                           ])
                     end,
 
@@ -2065,7 +2066,8 @@ vhost_metrics(Server, Query, Lang) ->
                   [?XE(<<"tr">>,
                    [?X(<<"td">>),
                     ?XCT(<<"td">>, <<"Date">>),
-                    ?XCT(<<"td">>, <<"Count">>)
+                    ?XCT(<<"td">>, <<"Messages">>),
+                    ?XCT(<<"td">>, <<"Word Count">>)
                    ])]),
                   ?XE(<<"tbody">>,
                       lists:map(Fun, Dates)
@@ -2096,14 +2098,15 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                             error;
                         VResult -> VResult
                    end,
-             Fun = fun({User, Count}) ->
+             Fun = fun({User, Count, WordCount}) ->
                          UserBin = iolist_to_binary(User),
                          ID = misc:encode_base64( << UserBin/binary, Server/binary >> ),
                          ?XE(<<"tr">>,
                           [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
                             [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
-                           ?XE(<<"td">>, [?AC(<< <<"../user/">>/binary, UserBin/binary, <<"/metrics/">>/binary, Date/binary >>, UserBin)]),
-                           ?XC(<<"td">>, integer_to_binary(Count))
+                           ?XC(<<"td">>, UserBin),
+                           ?XC(<<"td">>, integer_to_binary(Count)),
+                           ?XC(<<"td">>, integer_to_binary(WordCount))
                           ])
                    end,
              [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"Metrics for ~s at ~s">>), [Server, Date])))] ++
@@ -2118,8 +2121,9 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                   [?XE(<<"tr">>,
                    [?X(<<"td">>),
                     ?XCT(<<"td">>, <<"User">>),
-                    ?XCT(<<"td">>, <<"Count">>)
-                   ])]),
+                    ?XCT(<<"td">>, <<"Messages">>),
+                    ?XCT(<<"td">>, <<"Word Count">>)
+		   ])]),
                   ?XE(<<"tbody">>,
                       lists:map(Fun, Stats)
                      )]),

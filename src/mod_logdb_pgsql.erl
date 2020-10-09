@@ -296,7 +296,7 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
     {reply, Reply, State};
 handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
     SName = stats_table(VHost, Schema),
-    Query = ["SELECT at, sum(count), sum(word_count) ",
+    Query = ["SELECT at, sum(count), coalesce(sum(word_count), 0) as word_count ",
                 "FROM ",SName," ",
                 "GROUP BY at ",
                 "ORDER BY DATE(at) DESC;"
@@ -304,7 +304,7 @@ handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=
     Reply =
       case sql_query_internal(DBRef, Query) of
            {data, Recs} ->
-              {ok, [ {Date, list_to_integer(Count)} || {Date, Count} <- Recs]};
+              {ok, [ {Date, list_to_integer(Count), list_to_integer(WordCount)} || {Date, Count, WordCount} <- Recs]};
            {error, Reason} ->
               % TODO: Duplicate error message ?
               {error, Reason}
@@ -312,7 +312,7 @@ handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=
     {reply, Reply, State};
 handle_call({get_vhost_metrics_at, Date}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
     SName = stats_table(VHost, Schema),
-    Query = ["SELECT username, sum(count) AS allcount, sum(word_count) AS allwordcount ",
+    Query = ["SELECT username, sum(count) AS allcount, coalesce(sum(word_count), 0) AS allwordcount ",
                 "FROM ",SName," ",
                 "JOIN ",users_table(VHost, Schema)," ON owner_id=user_id ",
                 "WHERE at='",Date,"' ",
@@ -322,8 +322,8 @@ handle_call({get_vhost_metrics_at, Date}, _From, #state{dbref=DBRef, vhost=VHost
     Reply =
       case sql_query_internal(DBRef, Query) of
            {data, Recs} ->
-              RFun = fun({User, Count}) ->
-                          {User, list_to_integer(Count)}
+              RFun = fun({User, Count, WordCount}) ->
+                          {User, list_to_integer(Count), list_to_integer(WordCount)}
                      end,
               {ok, lists:reverse(lists:keysort(2, lists:map(RFun, Recs)))};
            {error, Reason} ->
@@ -592,7 +592,7 @@ rebuild_stats_at_int(DBRef, VHost, Schema, Date) ->
        {updated, _} = sql_query_internal(DBRef, ["LOCK TABLE ",TempTable," IN ACCESS EXCLUSIVE MODE;"]),
        SQuery = ["INSERT INTO ",TempTable," ",
                   "(owner_id,peer_name_id,peer_server_id,at,count,word_count) ",
-                     "SELECT owner_id,peer_name_id,peer_server_id,'",Date,"'",",count(*),sum(word_count) ",
+                     "SELECT owner_id,peer_name_id,peer_server_id,'",Date,"'",",count(*),coalesce(sum(word_count),0) ",
                         "FROM ",Table," GROUP BY owner_id,peer_name_id,peer_server_id;"],
        case sql_query_internal(DBRef, SQuery) of
             {updated, 0} ->
@@ -1063,10 +1063,13 @@ BEGIN
    IF NOT FOUND THEN
       INSERT INTO ~s (owner_id, peer_name_id, peer_server_id, at, count) VALUES (ownerID, peer_nameID, peer_serverID, atdate, 1);
    END IF;
+
+   EXECUTE 'UPDATE ~s SET word_count = (SELECT coalesce(sum(word_count), 0) AS word_count FROM ' || tablename || ' WHERE owner_id = ' || ownerID || ' AND peer_name_id = ' || peer_nameID || ' AND peer_server_id = ' || peer_serverID || ' AND at = ''' || atdate || ''') WHERE owner_id = ' || ownerID || ' AND peer_name_id = ' || peer_nameID || ' AND peer_server_id = ' || peer_serverID || ' AND at = ''' || atdate || '''';
+
    RETURN 0;
 END;
 $$ LANGUAGE plpgsql;
-", [logmessage_name(VHost,Schema),UName,UName,UName,UName,SName,SName,RName,RName,Schema,escape_vhost(VHost),UName,UName,SName,RName,StName,StName]).
+", [logmessage_name(VHost,Schema),UName,UName,UName,UName,SName,SName,RName,RName,Schema,escape_vhost(VHost),UName,UName,SName,RName,StName,StName,StName]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
