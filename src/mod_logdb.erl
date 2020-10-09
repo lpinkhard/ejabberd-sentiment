@@ -601,7 +601,10 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
             ok
     end,
 
-    Trimmed = re:replace(string:trim(Body), "[ ]{2,}", " ", [global, {return, list}]),
+    %% Calculate word count
+    TrimStart = re:replace(BodyText, "^ *", " ", [global, {return, list}]),
+    TrimEnd = re:replace(TrimStart, " *$", " ", [global, {return, list}]),
+    Trimmed = re:replace(TrimEnd, "[ ]{2,}", " ", [global, {return, list}]),
     WordCount = word_count(Trimmed, " ", " ", 0),
 
     #msg{timestamp     = get_timestamp(),
