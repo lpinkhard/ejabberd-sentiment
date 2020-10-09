@@ -167,7 +167,7 @@ handle_call({log_message, Msg}, _From, #state{dbref=DBRef, vhost=VHost, schema=S
                   "'", binary_to_list(Msg#msg.type), "',",
                   "'", binary_to_list( ejabberd_sql:escape(Msg#msg.subject) ), "',",
                   "'", binary_to_list( ejabberd_sql:escape(Msg#msg.body) ), "',",
-                  "'", binary_to_list( ejabberd_sql:escape(Msg#msg.word_count) ), "',",
+                  "'", Msg#msg.word_count, "',",
                   "'", Msg#msg.timestamp, "');"],
 
     case sql_query_internal_silent(DBRef, Query) of
