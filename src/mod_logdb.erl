@@ -616,7 +616,7 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
     WordCount = word_count(Trimmed, " ", " ", -1),
 
     %% Get sentiment
-    Sentiment = 0,
+    Sentiment = 1,
 
     #msg{timestamp     = get_timestamp(),
          owner_name    = stringprep:tolower(Owner#jid.user),
@@ -2013,7 +2013,7 @@ user_messages_stats_at(User, Server, Query, Lang, Date) ->
                         ?XC(<<"td">>, iolist_to_binary(convert_timestamp(Timestamp))),
                         ?XC(<<"td">>, iolist_to_binary(atom_to_list(Direction)++": "++UserNick)),
                         ?XE(<<"td">>, [?XC(<<"pre">>, Text)]),
-                        ?XC(<<"td">>, get_sentiment(Sentiment))]
+                        ?XC(<<"td">>, get_sentiment(iolist_to_binary(Sentiment)))]
                         )
                  end,
            % Filtered user messages in html
@@ -2261,7 +2261,7 @@ user_metrics(User, Server, Query, Lang) ->
 
 get_sentiment(Value) ->
   if
-    Value < 0 -> "Negative";
-    Value > 0 -> "Positive";
-    true -> "Neutral"
+    Value == <<0>> -> <<"Negative">>;
+    Value == <<2>> -> <<"Positive">>;
+    true -> <<"Neutral">>
   end.
