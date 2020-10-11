@@ -2070,9 +2070,7 @@ vhost_metrics(Server, Query, Lang) ->
                          DateBin = iolist_to_binary(Date),
                          ID = misc:encode_base64( << Server/binary, DateBin/binary >> ),
                          ?XE(<<"tr">>,
-                          [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
-                            [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
-                           ?XE(<<"td">>, [?AC(DateBin, DateBin)]),
+                          [?XE(<<"td">>, [?AC(DateBin, DateBin)]),
                            ?XC(<<"td">>, integer_to_binary(Count)),
                            ?XC(<<"td">>, integer_to_binary(WordCount)),
                            ?XC(<<"td">>, integer_to_binary(EmojiCount))
@@ -2089,8 +2087,7 @@ vhost_metrics(Server, Query, Lang) ->
                 [?XE(<<"table">>,
                  [?XE(<<"thead">>,
                   [?XE(<<"tr">>,
-                   [?X(<<"td">>),
-                    ?XCT(<<"td">>, <<"Date">>),
+                   [?XCT(<<"td">>, <<"Date">>),
                     ?XCT(<<"td">>, <<"Messages">>),
                     ?XCT(<<"td">>, <<"Word Count">>),
                     ?XCT(<<"td">>, <<"Emoji Count">>)
@@ -2125,9 +2122,7 @@ vhost_umetrics(Server, Query, Lang) ->
                          UserBin = iolist_to_binary(User),
                          ID = misc:encode_base64( << UserBin/binary, Server/binary >> ),
                          ?XE(<<"tr">>,
-                          [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
-                            [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
-                           ?XC(<<"td">>, UserBin),
+                          [?XC(<<"td">>, UserBin),
                            ?XC(<<"td">>, integer_to_binary(Count)),
                            ?XC(<<"td">>, integer_to_binary(WordCount)),
                            ?XC(<<"td">>, integer_to_binary(EmojiCount))
@@ -2143,8 +2138,7 @@ vhost_umetrics(Server, Query, Lang) ->
                 [?XE(<<"table">>,
                  [?XE(<<"thead">>,
                   [?XE(<<"tr">>,
-                   [?X(<<"td">>),
-                    ?XCT(<<"td">>, <<"User">>),
+                   [?XCT(<<"td">>, <<"User">>),
                     ?XCT(<<"td">>, <<"Messages">>),
                     ?XCT(<<"td">>, <<"Word Count">>),
                     ?XCT(<<"td">>, <<"Emoji Count">>)
@@ -2179,9 +2173,7 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                          UserBin = iolist_to_binary(User),
                          ID = misc:encode_base64( << UserBin/binary, Server/binary >> ),
                          ?XE(<<"tr">>,
-                          [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
-                            [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
-                           ?XC(<<"td">>, UserBin),
+                          [?XC(<<"td">>, UserBin),
                            ?XC(<<"td">>, integer_to_binary(Count)),
                            ?XC(<<"td">>, integer_to_binary(WordCount)),
                            ?XC(<<"td">>, integer_to_binary(EmojiCount))
@@ -2197,8 +2189,7 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                 [?XE(<<"table">>,
                  [?XE(<<"thead">>,
                   [?XE(<<"tr">>,
-                   [?X(<<"td">>),
-                    ?XCT(<<"td">>, <<"User">>),
+                   [?XCT(<<"td">>, <<"User">>),
                     ?XCT(<<"td">>, <<"Messages">>),
                     ?XCT(<<"td">>, <<"Word Count">>),
                     ?XCT(<<"td">>, <<"Emoji Count">>)
@@ -2236,9 +2227,7 @@ user_metrics(User, Server, Query, Lang) ->
                       DateBin = iolist_to_binary(Date),
                       ID = misc:encode_base64( << User/binary, DateBin/binary >> ),
                       ?XE(<<"tr">>,
-                       [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
-                         [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
-                        ?XE(<<"td">>, [?AC(DateBin, DateBin)]),
+                       [?XE(<<"td">>, [?AC(DateBin, DateBin)]),
                         ?XC(<<"td">>, iolist_to_binary(integer_to_list(Count)))
                        ])
                   end,
@@ -2252,8 +2241,7 @@ user_metrics(User, Server, Query, Lang) ->
               [?XE(<<"table">>,
                [?XE(<<"thead">>,
                 [?XE(<<"tr">>,
-                 [?X(<<"td">>),
-                  ?XCT(<<"td">>, <<"Date">>),
+                 [?XCT(<<"td">>, <<"Date">>),
                   ?XCT(<<"td">>, <<"Count">>)
                  ])]),
                 ?XE(<<"tbody">>,
