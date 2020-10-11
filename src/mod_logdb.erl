@@ -2013,7 +2013,7 @@ user_messages_stats_at(User, Server, Query, Lang, Date) ->
                         ?XC(<<"td">>, iolist_to_binary(convert_timestamp(Timestamp))),
                         ?XC(<<"td">>, iolist_to_binary(atom_to_list(Direction)++": "++UserNick)),
                         ?XE(<<"td">>, [?XC(<<"pre">>, Text)]),
-                        ?XC(<<"td">>, get_sentiment(iolist_to_binary(Sentiment)))]
+                        ?XC(<<"td">>, iolist_to_binary(Sentiment))]
                         )
                  end,
            % Filtered user messages in html
@@ -2258,11 +2258,3 @@ user_metrics(User, Server, Query, Lang) ->
                    )])
               ])]
     end.
-
-get_sentiment(Value) ->
-  ValF = string:to_float(binary_to_list(Value)),
-  if
-    ValF < 0.49 -> <<"Negative">>;
-    ValF > 0.51 -> <<"Positive">>;
-    true -> <<"Neutral">>
-  end.

@@ -169,7 +169,7 @@ handle_call({log_message, Msg}, _From, #state{dbref=DBRef, vhost=VHost, schema=S
                   "'", binary_to_list( ejabberd_sql:escape(Msg#msg.body) ), "',",
                   "'", integer_to_list(Msg#msg.word_count), "',",
                   "'", Msg#msg.timestamp, "',",
-                  "'", io_lib:format("~.2f", Msg#msg.sentiment), "');"],
+                  "'", io_lib:format("~.2f", [Msg#msg.sentiment]), "');"],
 
     case sql_query_internal_silent(DBRef, Query) of
     % TODO: change this
