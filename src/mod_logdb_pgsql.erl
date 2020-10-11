@@ -29,7 +29,7 @@
          rebuild_stats_at/2,
          delete_messages_by_user_at/3, delete_all_messages_by_user_at/3, delete_messages_at/2,
          get_vhost_stats/1, get_vhost_stats_at/2, get_user_stats/2, get_user_messages_at/3,
-         get_vhost_metrics/1, get_vhost_metrics_at/2, get_user_metrics/2,
+         get_vhost_metrics/1, get_vhost_umetrics/1, get_vhost_metrics_at/2, get_user_metrics/2,
          get_dates/1,
          get_users_settings/1, get_user_settings/2, set_user_settings/3,
          drop_user/2]).
@@ -312,6 +312,26 @@ handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=
               {error, Reason}
       end,
     {reply, Reply, State};
+handle_call({get_vhost_umetrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
+  SName = stats_table(VHost, Schema),
+  Query = ["SELECT username, sum(count) AS allcount, coalesce(sum(word_count), 0) AS allwordcount, coalesce(sum(emoji_count), 0) AS allemojicount ",
+    "FROM ",SName," ",
+    "JOIN ",users_table(VHost, Schema)," ON owner_id=user_id ",
+    "GROUP BY username ",
+    "ORDER BY allcount DESC;"
+  ],
+  Reply =
+    case sql_query_internal(DBRef, Query) of
+      {data, Recs} ->
+        RFun = fun({User, Count, WordCount, EmojiCount}) ->
+          {User, list_to_integer(Count), list_to_integer(WordCount), list_to_integer(EmojiCount)}
+               end,
+        {ok, lists:reverse(lists:keysort(2, lists:map(RFun, Recs)))};
+      {error, Reason} ->
+        % TODO:
+        {error, Reason}
+    end,
+  {reply, Reply, State};
 handle_call({get_vhost_metrics_at, Date}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
     SName = stats_table(VHost, Schema),
     Query = ["SELECT username, sum(count) AS allcount, coalesce(sum(word_count), 0) AS allwordcount, coalesce(sum(emoji_count), 0) AS allemojicount ",
@@ -505,6 +525,9 @@ get_user_messages_at(User, VHost, Date) ->
 get_vhost_metrics(VHost) ->
    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
    gen_server:call(Proc, {get_vhost_metrics}, ?CALL_TIMEOUT).
+get_vhost_umetrics(VHost) ->
+  Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+  gen_server:call(Proc, {get_vhost_umetrics}, ?CALL_TIMEOUT).
 get_vhost_metrics_at(VHost, Date) ->
    Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
    gen_server:call(Proc, {get_vhost_metrics_at, Date}, ?CALL_TIMEOUT).

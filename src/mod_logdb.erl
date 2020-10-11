@@ -38,6 +38,7 @@
 -export([get_vhost_stats/1, get_vhost_stats_at/2,
          get_user_stats/2, get_user_messages_at/3,
          get_vhost_metrics/1, get_vhost_metrics_at/2,
+         get_vhost_umetrics/1,
          get_user_metrics/2,
          get_dates/1,
          sort_stats/1,
@@ -52,7 +53,8 @@
 % webadmin hooks
 -export([webadmin_menu/3,
          webadmin_menu_metrics/3,
-	 webadmin_user/4,
+         webadmin_menu_umetrics/3,
+         webadmin_user/4,
          webadmin_page/3,
          user_parse_query/5]).
 % webadmin queries
@@ -60,9 +62,10 @@
          vhost_messages_stats_at/4,
          user_messages_stats/4,
          user_messages_stats_at/5,
-	 vhost_metrics/3,
-	 vhost_metrics_at/4,
-	 user_metrics/4]).
+         vhost_metrics/3,
+         vhost_umetrics/3,
+	       vhost_metrics_at/4,
+	       user_metrics/4]).
 
 -include("mod_logdb.hrl").
 -include("xmpp.hrl").
@@ -170,6 +173,7 @@ cleanup(#state{vhost=VHost} = _State) ->
     ejabberd_hooks:delete(disco_local_features, VHost, ?MODULE, get_local_features, 50),
     ejabberd_hooks:delete(disco_local_items, VHost, ?MODULE, get_local_items, 50),
 
+    ejabberd_hooks:delete(webadmin_menu_host, VHost, ?MODULE, webadmin_menu_umetrics, 80),
     ejabberd_hooks:delete(webadmin_menu_host, VHost, ?MODULE, webadmin_menu_metrics, 75),
     ejabberd_hooks:delete(webadmin_menu_host, VHost, ?MODULE, webadmin_menu, 70),
     ejabberd_hooks:delete(webadmin_user, VHost, ?MODULE, webadmin_user, 50),
@@ -255,6 +259,9 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbmod=DBMod, vhost
 handle_call({get_vhost_metrics}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
     Reply = DBMod:get_vhost_metrics(VHost),
     {reply, Reply, State};
+handle_call({get_vhost_umetrics}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
+  Reply = DBMod:get_vhost_umetrics(VHost),
+  {reply, Reply, State};
 handle_call({get_vhost_metrics_at, Date}, _From, #state{dbmod=DBMod, vhost=VHost}=State) ->
     Reply = DBMod:get_vhost_metrics_at(VHost, binary_to_list(Date)),
     {reply, Reply, State};
@@ -439,7 +446,8 @@ handle_info(start, #state{dbmod=DBMod, vhost=VHost}=State) ->
 
            ejabberd_hooks:add(webadmin_menu_host, VHost, ?MODULE, webadmin_menu, 70),
            ejabberd_hooks:add(webadmin_menu_host, VHost, ?MODULE, webadmin_menu_metrics, 75),
-	   ejabberd_hooks:add(webadmin_user, VHost, ?MODULE, webadmin_user, 50),
+           ejabberd_hooks:add(webadmin_menu_host, VHost, ?MODULE, webadmin_menu_umetrics, 80),
+	         ejabberd_hooks:add(webadmin_user, VHost, ?MODULE, webadmin_user, 50),
            ejabberd_hooks:add(webadmin_page_host, VHost, ?MODULE, webadmin_page, 50),
            ejabberd_hooks:add(webadmin_user_parse_query, VHost, ?MODULE, user_parse_query, 50),
 
@@ -745,6 +753,10 @@ get_user_messages_at(User, VHost, Date) ->
 get_vhost_metrics(VHost) ->
     Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
     gen_server:call(Proc, {get_vhost_metrics}, ?CALL_TIMEOUT).
+
+get_vhost_umetrics(VHost) ->
+  Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
+  gen_server:call(Proc, {get_vhost_umetrics}, ?CALL_TIMEOUT).
 
 get_vhost_metrics_at(VHost, Date) ->
     Proc = gen_mod:get_module_proc(VHost, ?PROCNAME),
@@ -1637,6 +1649,9 @@ webadmin_menu(Acc, _Host, Lang) ->
 webadmin_menu_metrics(Acc, _Host, Lang) ->
     [{<<"metrics">>, ?T(<<"Daily Metrics">>)} | Acc].
 
+webadmin_menu_umetrics(Acc, _Host, Lang) ->
+  [{<<"usermetrics">>, ?T(<<"User Metrics">>)} | Acc].
+
 webadmin_user(Acc, User, Server, Lang) ->
     Sett = get_user_settings(User, Server),
     Log =
@@ -1678,6 +1693,12 @@ webadmin_page(_, Host,
                        q = Query,
                        lang = Lang}) ->
     Res = vhost_metrics(Host, Query, Lang),
+    {stop, Res};
+webadmin_page(_, Host,
+              #request{path = [<<"usermetrics">>],
+                       q = Query,
+                       lang = Lang}) ->
+    Res = vhost_umetrics(Host, Query, Lang),
     {stop, Res};
 webadmin_page(_, Host,
               #request{path = [<<"metrics">>, Date],
@@ -2076,12 +2097,63 @@ vhost_metrics(Server, Query, Lang) ->
                    ])]),
                   ?XE(<<"tbody">>,
                       lists:map(Fun, Dates)
-                     )]),
-                  ?BR,
-                  ?INPUTT(<<"submit">>, <<"delete">>, <<"Delete Selected">>)
+                     )])
                 ])]
    end.
 
+vhost_umetrics(Server, Query, Lang) ->
+   {Time, Value} = timer:tc(mod_logdb, get_vhost_umetrics, [Server]),
+   ?INFO_MSG("get_vhost_umetrics(~p) elapsed ~p sec", [Server, Time/1000000]),
+   %case get_vhost_umetrics(Server) of
+   case Value of
+        {'EXIT', CReason} ->
+             ?ERROR_MSG("Failed to get_vhost_umetrics: ~p", [CReason]),
+             [?XC(<<"h1">>, ?T(<<"Error occupied while fetching list">>))];
+        {error, GReason} ->
+             ?ERROR_MSG("Failed to get_vhost_umetrics: ~p", [GReason]),
+             [?XC(<<"h1">>, ?T(<<"Error occupied while fetching list">>))];
+        {ok, []} ->
+             [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s">>), [Server])))];
+        {ok, Stats} ->
+             Res = case catch vhost_messages_parse_query(Server, Stats, Query) of
+                        {'EXIT', Reason} ->
+                            ?ERROR_MSG("~p", [Reason]),
+                            error;
+                        VResult -> VResult
+                   end,
+             Fun = fun({User, Count, WordCount, EmojiCount}) ->
+                         UserBin = iolist_to_binary(User),
+                         ID = misc:encode_base64( << UserBin/binary, Server/binary >> ),
+                         ?XE(<<"tr">>,
+                          [?XAE(<<"td">>, [{<<"class">>, <<"valign">>}],
+                            [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
+                           ?XC(<<"td">>, UserBin),
+                           ?XC(<<"td">>, integer_to_binary(Count)),
+                           ?XC(<<"td">>, integer_to_binary(WordCount)),
+                           ?XC(<<"td">>, integer_to_binary(EmojiCount))
+                          ])
+                   end,
+             [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"Metrics for ~s">>), [Server])))] ++
+              case Res of
+                    ok -> [?CT(<<"Submitted">>), ?P];
+                    error -> [?CT(<<"Bad format">>), ?P];
+                    nothing -> []
+              end ++
+              [?XAE(<<"form">>, [{<<"action">>, <<"">>}, {<<"method">>, <<"post">>}],
+                [?XE(<<"table">>,
+                 [?XE(<<"thead">>,
+                  [?XE(<<"tr">>,
+                   [?X(<<"td">>),
+                    ?XCT(<<"td">>, <<"User">>),
+                    ?XCT(<<"td">>, <<"Messages">>),
+                    ?XCT(<<"td">>, <<"Word Count">>),
+                    ?XCT(<<"td">>, <<"Emoji Count">>)
+		   ])]),
+                  ?XE(<<"tbody">>,
+                      lists:map(Fun, Stats)
+                     )])
+                ])]
+   end.
 
 vhost_metrics_at(Server, Query, Lang, Date) ->
    {Time, Value} = timer:tc(mod_logdb, get_vhost_metrics_at, [Server, Date]),
@@ -2133,9 +2205,7 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
 		   ])]),
                   ?XE(<<"tbody">>,
                       lists:map(Fun, Stats)
-                     )]),
-                  ?BR,
-                  ?INPUTT(<<"submit">>, <<"delete">>, <<"Delete Selected">>)
+                     )])
                 ])]
    end.
 
@@ -2188,9 +2258,7 @@ user_metrics(User, Server, Query, Lang) ->
                  ])]),
                 ?XE(<<"tbody">>,
                     lists:map(Fun, Dates)
-                   )]),
-                ?BR,
-                ?INPUTT(<<"submit">>, <<"delete">>, <<"Delete Selected">>)
+                   )])
               ])]
     end.
 
