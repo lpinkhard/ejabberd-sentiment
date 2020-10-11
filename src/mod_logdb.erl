@@ -615,6 +615,9 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
     Trimmed = re:replace(TrimEnd, "[ ]{2,}", " ", [global, {return, list}]),
     WordCount = word_count(Trimmed, " ", " ", -1),
 
+    %% Get sentiment
+    Sentiment = 0,
+
     #msg{timestamp     = get_timestamp(),
          owner_name    = stringprep:tolower(Owner#jid.user),
          peer_name     = stringprep:tolower(Peer#jid.user),
@@ -625,6 +628,7 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
          subject       = SubjectText,
          body          = BodyText,
          word_count    = WordCount,
+         sentiment     = Sentiment,
 	 emoji_count   = integer_to_binary(0)
 	};
 packet_parse(_, _, _, _, _) ->
@@ -955,7 +959,8 @@ copy_messages_int_tc([FromDBMod, ToDBMod, VHost, Date]) ->
                                                               subject=iolist_to_binary(Msg#msg.subject),
                                                               body=iolist_to_binary(Msg#msg.body),
                                                               word_count=iolist_to_binary(Msg#msg.word_count),
-							      emoji_count=iolist_to_binary(Msg#msg.emoji_count)},
+                                                              emoji_count=iolist_to_binary(Msg#msg.emoji_count),
+                                                              sentiment=iolist_to_binary(Msg#msg.sentiment)},
                                           ok = ToDBMod:log_message(VHost, MsgBinary),
                                           MFAcc + 1
                                       end, 0, Msgs),
@@ -1981,7 +1986,8 @@ user_messages_stats_at(User, Server, Query, Lang, Date) ->
                                direction=Direction,
                                peer_name=PName, peer_server=PServer, peer_resource=PRes,
                                type=Type,
-                               body=Body}) ->
+                               body=Body,
+                               sentiment=Sentiment}) ->
                       Text = case Subject of
                                   "" -> iolist_to_binary(Body);
                                   _ -> iolist_to_binary([binary_to_list(?T(<<"Subject">>)) ++ ": " ++ Subject ++ "\n" ++ Body])
@@ -2006,7 +2012,9 @@ user_messages_stats_at(User, Server, Query, Lang, Date) ->
                        [?XE(<<"td">>, [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
                         ?XC(<<"td">>, iolist_to_binary(convert_timestamp(Timestamp))),
                         ?XC(<<"td">>, iolist_to_binary(atom_to_list(Direction)++": "++UserNick)),
-                        ?XE(<<"td">>, [?XC(<<"pre">>, Text)])])
+                        ?XE(<<"td">>, [?XC(<<"pre">>, Text)]),
+                        ?XC(<<"td">>, iolist_to_binary(Sentiment))]
+                        )
                  end,
            % Filtered user messages in html
            Msgs = lists:map(Msgs_Fun, lists:sort(User_messages_filtered)),
@@ -2035,7 +2043,8 @@ user_messages_stats_at(User, Server, Query, Lang, Date) ->
                         [?X(<<"td">>),
                          ?XCT(<<"td">>, <<"Date, Time">>),
                          ?XCT(<<"td">>, <<"Direction: Jid">>),
-                         ?XCT(<<"td">>, <<"Body">>)
+                         ?XCT(<<"td">>, <<"Body">>),
+                         ?XCT(<<"td">>, <<"Sentiment">>)
                         ])]),
                    ?XE(<<"tbody">>,
                         Msgs
