@@ -2115,7 +2115,7 @@ vhost_umetrics(Server, Query, Lang) ->
         {ok, []} ->
              [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s">>), [Server])))];
         {ok, Stats} ->
-             Res = case catch vhost_messages_parse_query(Server, Stats, Query) of
+             Res = case catch vhost_messages_parse_query(Server, Query) of
                         {'EXIT', Reason} ->
                             ?ERROR_MSG("~p", [Reason]),
                             error;
