@@ -169,7 +169,7 @@ handle_call({log_message, Msg}, _From, #state{dbref=DBRef, vhost=VHost, schema=S
                   "'", binary_to_list( ejabberd_sql:escape(Msg#msg.body) ), "',",
                   "'", integer_to_list(Msg#msg.word_count), "',",
                   "'", Msg#msg.timestamp, "',",
-                  "'", integer_to_list(Msg#msg.sentiment), "');"],
+                  "'", io_lib:format("~.2f", Msg#msg.sentiment), "');"],
 
     case sql_query_internal_silent(DBRef, Query) of
     % TODO: change this
@@ -969,7 +969,7 @@ create_resources_table(#state{dbref=DBRef, vhost=VHost, schema=Schema}) ->
     end.
 
 create_internals(#state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
-    sql_query_internal(DBRef, ["DROP FUNCTION IF EXISTS ",logmessage_name(VHost,Schema)," (tbname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mword_count INTEGER, mtimestamp DOUBLE PRECISION, msentiment INTEGER);"]),
+    sql_query_internal(DBRef, ["DROP FUNCTION IF EXISTS ",logmessage_name(VHost,Schema)," (tbname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mword_count INTEGER, mtimestamp DOUBLE PRECISION, msentiment FLOAT);"]),
     case sql_query_internal(DBRef, [get_logmessage(VHost, Schema)]) of
          {updated, _} ->
             ?MYDEBUG("Created logmessage for ~p", [VHost]),
@@ -1011,7 +1011,7 @@ get_logmessage(VHost,Schema) ->
     SName = servers_table(VHost,Schema),
     RName = resources_table(VHost,Schema),
     StName = stats_table(VHost,Schema),
-    io_lib:format("CREATE OR REPLACE FUNCTION ~s (tbname TEXT, vname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mword_count INTEGER, mtimestamp DOUBLE PRECISION, msentiment INTEGER) RETURNS INTEGER AS $$
+    io_lib:format("CREATE OR REPLACE FUNCTION ~s (tbname TEXT, vname TEXT, atdt TEXT, owner TEXT, peer_name TEXT, peer_server TEXT, peer_resource TEXT, mdirection VARCHAR(4), mtype VARCHAR(9), msubj TEXT, mbody TEXT, mword_count INTEGER, mtimestamp DOUBLE PRECISION, msentiment FLOAT) RETURNS INTEGER AS $$
 DECLARE
    ownerID INTEGER;
    peer_nameID INTEGER;
@@ -1060,7 +1060,7 @@ BEGIN
                    'word_count INTEGER, ' ||
                    'emoji_count INTEGER, ' ||
                    'timestamp DOUBLE PRECISION, ' ||
-                   'sentiment INTEGER)';
+                   'sentiment FLOAT)';
       EXECUTE 'CREATE INDEX \"search_i_' || '~s' || '_' || atdate || '_' || '~s' || '\"' || ' ON ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id)';
 
       EXECUTE 'CREATE OR REPLACE VIEW ' || viewname || ' AS ' ||

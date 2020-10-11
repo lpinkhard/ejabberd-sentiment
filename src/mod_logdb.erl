@@ -616,7 +616,7 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
     WordCount = word_count(Trimmed, " ", " ", -1),
 
     %% Get sentiment
-    Sentiment = 1,
+    Sentiment = 0.5,
 
     #msg{timestamp     = get_timestamp(),
          owner_name    = stringprep:tolower(Owner#jid.user),
@@ -2260,8 +2260,9 @@ user_metrics(User, Server, Query, Lang) ->
     end.
 
 get_sentiment(Value) ->
+  ValF = string:to_float(binary_to_list(Value)),
   if
-    Value == <<0>> -> <<"Negative">>;
-    Value == <<2>> -> <<"Positive">>;
+    ValF < 0.49 -> <<"Negative">>;
+    ValF > 0.51 -> <<"Positive">>;
     true -> <<"Neutral">>
   end.
