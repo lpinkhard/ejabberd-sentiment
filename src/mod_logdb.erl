@@ -2264,4 +2264,4 @@ get_sentiment(Value) ->
     Value < 0 -> "Negative";
     Value > 0 -> "Positive";
     true -> "Neutral"
-  end
+  end.
