@@ -616,7 +616,9 @@ packet_parse(Owner, Peer, #message{body = Body, subject = Subject, type = Type},
          type          = misc:atom_to_binary(Type),
          subject       = SubjectText,
          body          = BodyText,
-         word_count    = WordCount};
+         word_count    = WordCount,
+	 emoji_count   = integer_to_binary(0)
+	};
 packet_parse(_, _, _, _, _) ->
     ignore.
 
@@ -940,7 +942,8 @@ copy_messages_int_tc([FromDBMod, ToDBMod, VHost, Date]) ->
                                                               type=iolist_to_binary(Msg#msg.type),
                                                               subject=iolist_to_binary(Msg#msg.subject),
                                                               body=iolist_to_binary(Msg#msg.body),
-                                                              word_count=iolist_to_binary(Msg#msg.word_count)},
+                                                              word_count=iolist_to_binary(Msg#msg.word_count),
+							      emoji_count=iolist_to_binary(Msg#msg.emoji_count)},
                                           ok = ToDBMod:log_message(VHost, MsgBinary),
                                           MFAcc + 1
                                       end, 0, Msgs),
@@ -1632,7 +1635,7 @@ webadmin_menu(Acc, _Host, Lang) ->
     [{<<"messages">>, ?T(<<"User Messages">>)} | Acc].
 
 webadmin_menu_metrics(Acc, _Host, Lang) ->
-    [{<<"metrics">>, ?T(<<"Metrics">>)} | Acc].
+    [{<<"metrics">>, ?T(<<"Daily Metrics">>)} | Acc].
 
 webadmin_user(Acc, User, Server, Lang) ->
     Sett = get_user_settings(User, Server),
@@ -2042,7 +2045,7 @@ vhost_metrics(Server, Query, Lang) ->
          {ok, []} ->
               [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"No metrics for ~s">>), [Server])))];
          {ok, Dates} ->
-              Fun = fun({Date, Count, WordCount}) ->
+              Fun = fun({Date, Count, WordCount, EmojiCount}) ->
                          DateBin = iolist_to_binary(Date),
                          ID = misc:encode_base64( << Server/binary, DateBin/binary >> ),
                          ?XE(<<"tr">>,
@@ -2050,7 +2053,8 @@ vhost_metrics(Server, Query, Lang) ->
                             [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
                            ?XE(<<"td">>, [?AC(DateBin, DateBin)]),
                            ?XC(<<"td">>, integer_to_binary(Count)),
-                           ?XC(<<"td">>, integer_to_binary(WordCount))
+                           ?XC(<<"td">>, integer_to_binary(WordCount)),
+                           ?XC(<<"td">>, integer_to_binary(EmojiCount))
                           ])
                     end,
 
@@ -2067,7 +2071,8 @@ vhost_metrics(Server, Query, Lang) ->
                    [?X(<<"td">>),
                     ?XCT(<<"td">>, <<"Date">>),
                     ?XCT(<<"td">>, <<"Messages">>),
-                    ?XCT(<<"td">>, <<"Word Count">>)
+                    ?XCT(<<"td">>, <<"Word Count">>),
+                    ?XCT(<<"td">>, <<"Emoji Count">>)
                    ])]),
                   ?XE(<<"tbody">>,
                       lists:map(Fun, Dates)
@@ -2098,7 +2103,7 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                             error;
                         VResult -> VResult
                    end,
-             Fun = fun({User, Count, WordCount}) ->
+             Fun = fun({User, Count, WordCount, EmojiCount}) ->
                          UserBin = iolist_to_binary(User),
                          ID = misc:encode_base64( << UserBin/binary, Server/binary >> ),
                          ?XE(<<"tr">>,
@@ -2106,7 +2111,8 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                             [?INPUT(<<"checkbox">>, <<"selected">>, ID)]),
                            ?XC(<<"td">>, UserBin),
                            ?XC(<<"td">>, integer_to_binary(Count)),
-                           ?XC(<<"td">>, integer_to_binary(WordCount))
+                           ?XC(<<"td">>, integer_to_binary(WordCount)),
+                           ?XC(<<"td">>, integer_to_binary(EmojiCount))
                           ])
                    end,
              [?XC(<<"h1">>, list_to_binary(io_lib:format(?T(<<"Metrics for ~s at ~s">>), [Server, Date])))] ++
@@ -2122,7 +2128,8 @@ vhost_metrics_at(Server, Query, Lang, Date) ->
                    [?X(<<"td">>),
                     ?XCT(<<"td">>, <<"User">>),
                     ?XCT(<<"td">>, <<"Messages">>),
-                    ?XCT(<<"td">>, <<"Word Count">>)
+                    ?XCT(<<"td">>, <<"Word Count">>),
+                    ?XCT(<<"td">>, <<"Emoji Count">>)
 		   ])]),
                   ?XE(<<"tbody">>,
                       lists:map(Fun, Stats)

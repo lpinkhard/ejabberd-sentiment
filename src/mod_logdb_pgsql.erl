@@ -272,6 +272,7 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
                     "subject,"
                     "body,"
                     "word_count,"
+                    "emoji_count,"
                     "timestamp "
                "FROM ",view_table(VHost, Schema, Date)," "
                "WHERE owner_name='",User,"';"],
@@ -281,12 +282,13 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
               Fun = fun({Peer_name, Peer_server, Peer_resource,
                          Direction,
                          Type,
-                         Subject, Body, WordCount,
+                         Subject, Body, WordCount, EmojiCount,
                          Timestamp}) ->
                           #msg{peer_name=Peer_name, peer_server=Peer_server, peer_resource=Peer_resource,
                                direction=list_to_atom(Direction),
                                type=Type,
-                               subject=Subject, body=Body, word_count=WordCount,
+                               subject=Subject, body=Body, word_count=WordCount, 
+			       emoji_count=EmojiCount,
                                timestamp=Timestamp}
                     end,
               {ok, lists:map(Fun, Recs)};
@@ -296,7 +298,7 @@ handle_call({get_user_messages_at, User, Date}, _From, #state{dbref=DBRef, vhost
     {reply, Reply, State};
 handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
     SName = stats_table(VHost, Schema),
-    Query = ["SELECT at, sum(count), coalesce(sum(word_count), 0) as word_count ",
+    Query = ["SELECT at, sum(count), coalesce(sum(word_count), 0) as word_count, coalesce(sum(emoji_count), 0) as emoji_count ",
                 "FROM ",SName," ",
                 "GROUP BY at ",
                 "ORDER BY DATE(at) DESC;"
@@ -304,7 +306,7 @@ handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=
     Reply =
       case sql_query_internal(DBRef, Query) of
            {data, Recs} ->
-              {ok, [ {Date, list_to_integer(Count), list_to_integer(WordCount)} || {Date, Count, WordCount} <- Recs]};
+              {ok, [ {Date, list_to_integer(Count), list_to_integer(WordCount), list_to_integer(EmojiCount)} || {Date, Count, WordCount, EmojiCount} <- Recs]};
            {error, Reason} ->
               % TODO: Duplicate error message ?
               {error, Reason}
@@ -312,7 +314,7 @@ handle_call({get_vhost_metrics}, _From, #state{dbref=DBRef, vhost=VHost, schema=
     {reply, Reply, State};
 handle_call({get_vhost_metrics_at, Date}, _From, #state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
     SName = stats_table(VHost, Schema),
-    Query = ["SELECT username, sum(count) AS allcount, coalesce(sum(word_count), 0) AS allwordcount ",
+    Query = ["SELECT username, sum(count) AS allcount, coalesce(sum(word_count), 0) AS allwordcount, coalesce(sum(emoji_count), 0) AS allemojicount ",
                 "FROM ",SName," ",
                 "JOIN ",users_table(VHost, Schema)," ON owner_id=user_id ",
                 "WHERE at='",Date,"' ",
@@ -322,8 +324,8 @@ handle_call({get_vhost_metrics_at, Date}, _From, #state{dbref=DBRef, vhost=VHost
     Reply =
       case sql_query_internal(DBRef, Query) of
            {data, Recs} ->
-              RFun = fun({User, Count, WordCount}) ->
-                          {User, list_to_integer(Count), list_to_integer(WordCount)}
+              RFun = fun({User, Count, WordCount, EmojiCount}) ->
+                          {User, list_to_integer(Count), list_to_integer(WordCount), list_to_integer(EmojiCount)}
                      end,
               {ok, lists:reverse(lists:keysort(2, lists:map(RFun, Recs)))};
            {error, Reason} ->
@@ -591,8 +593,8 @@ rebuild_stats_at_int(DBRef, VHost, Schema, Date) ->
        {updated, _} = sql_query_internal(DBRef, ["LOCK TABLE ",Table," IN ACCESS EXCLUSIVE MODE;"]),
        {updated, _} = sql_query_internal(DBRef, ["LOCK TABLE ",TempTable," IN ACCESS EXCLUSIVE MODE;"]),
        SQuery = ["INSERT INTO ",TempTable," ",
-                  "(owner_id,peer_name_id,peer_server_id,at,count,word_count) ",
-                     "SELECT owner_id,peer_name_id,peer_server_id,'",Date,"'",",count(*),coalesce(sum(word_count),0) ",
+                  "(owner_id,peer_name_id,peer_server_id,at,count,word_count,emoji_count) ",
+                     "SELECT owner_id,peer_name_id,peer_server_id,'",Date,"'",",count(*),coalesce(sum(word_count),0),coalesce(sum(emoji_count),0) ",
                         "FROM ",Table," GROUP BY owner_id,peer_name_id,peer_server_id;"],
        case sql_query_internal(DBRef, SQuery) of
             {updated, 0} ->
@@ -613,8 +615,8 @@ rebuild_stats_at_int(DBRef, VHost, Schema, Date) ->
                 {updated, _} = sql_query_internal(DBRef, ["LOCK TABLE ",TempTable," IN ACCESS EXCLUSIVE MODE;"]),
                 {updated, _} = sql_query_internal(DBRef, DQuery),
                 SQuery1 = ["INSERT INTO ",STable," ",
-                            "(owner_id,peer_name_id,peer_server_id,at,count,word_count) ",
-                               "SELECT owner_id,peer_name_id,peer_server_id,at,count,word_count ",
+                            "(owner_id,peer_name_id,peer_server_id,at,count,word_count,emoji_count) ",
+                               "SELECT owner_id,peer_name_id,peer_server_id,at,count,word_count,emoji_count ",
                                   "FROM ",TempTable,";"],
                 case sql_query_internal(DBRef, SQuery1) of
                      {updated, _} -> ok;
@@ -679,7 +681,7 @@ get_user_stats_int(DBRef, Schema, User, VHost) ->
 get_user_metrics_int(DBRef, Schema, User, VHost) ->
     SName = stats_table(VHost, Schema),
     UName = users_table(VHost, Schema),
-    Query = ["SELECT stats.at, sum(stats.count), sum(stats.word_count) ",
+    Query = ["SELECT stats.at, sum(stats.count), sum(stats.word_count), sum(stats.emoji_count) ",
                  "FROM ",UName," AS users ",
                     "JOIN ",SName," AS stats ON owner_id=user_id "
                  "WHERE users.username='",User,"' ",
@@ -750,8 +752,9 @@ create_temp_table(DBRef, VHost, Schema) ->
                 "peer_server_id INTEGER, ",
                 "at VARCHAR(20), ",
                 "count INTEGER, ",
-                "word_count INTEGER ",
-             ");"
+                "word_count INTEGER, ",
+                "emoji_count INTEGER ",
+   		");"
             ],
     case sql_query_internal(DBRef, Query) of
          {updated, _} -> ok;
@@ -769,7 +772,8 @@ create_stats_table(#state{dbref=DBRef, vhost=VHost, schema=Schema}=State) ->
                     "peer_server_id INTEGER, ",
                     "at VARCHAR(20), ",
                     "count integer, ",
-                    "word_count integer ",
+                    "word_count integer, ",
+		    "emoji_count integer ",
                  ");"
                 ],
         case sql_query_internal_silent(DBRef, Query) of
@@ -1017,7 +1021,7 @@ BEGIN
    END IF;
 
    BEGIN
-      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, word_count, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mword_count || ',' || mtimestamp || ')';
+      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, word_count, emoji_count, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mword_count || ',countEmoji(' || quote_literal(mbody) || '),' || mtimestamp || ')';
    EXCEPTION WHEN undefined_table THEN
       EXECUTE 'CREATE TABLE ' || tablename || ' (' ||
                    'owner_id INTEGER, ' ||
@@ -1029,6 +1033,7 @@ BEGIN
                    'subject TEXT, ' ||
                    'body TEXT, ' ||
                    'word_count INTEGER, ' ||
+                   'emoji_count INTEGER, ' ||
                    'timestamp DOUBLE PRECISION)';
       EXECUTE 'CREATE INDEX \"search_i_' || '~s' || '_' || atdate || '_' || '~s' || '\"' || ' ON ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id)';
 
@@ -1042,7 +1047,8 @@ BEGIN
                           'messages.subject, ' ||
                           'messages.body, ' ||
                           'messages.word_count, ' ||
-                          'messages.timestamp ' ||
+                          'messages.emoji_count, ' ||
+			  'messages.timestamp ' ||
                    'FROM ' ||
                           '~s owner, ' ||
                           '~s peer, ' ||
@@ -1056,7 +1062,7 @@ BEGIN
                           'resources.resource_id=messages.peer_resource_id ' ||
                    'ORDER BY messages.timestamp';
 
-      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, word_count, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mword_count || ',' || mtimestamp || ')';
+      EXECUTE 'INSERT INTO ' || tablename || ' (owner_id, peer_name_id, peer_server_id, peer_resource_id, direction, type, subject, body, word_count, emoji_count, timestamp) VALUES (' || ownerID || ',' || peer_nameID || ',' || peer_serverID || ',' || peer_resourceID || ',''' || mdirection || ''',''' || mtype || ''',' || quote_literal(msubj) || ',' || quote_literal(mbody) || ',' || mword_count || ',countEmoji(' || quote_literal(mbody) || '),' || mtimestamp || ')';
    END;
 
    UPDATE ~s SET count=count+1 where at=atdate and owner_id=ownerID and peer_name_id=peer_nameID and peer_server_id=peer_serverID;
@@ -1066,10 +1072,12 @@ BEGIN
 
    EXECUTE 'UPDATE ~s SET word_count = (SELECT coalesce(sum(word_count), 0) AS word_count FROM ' || tablename || ' WHERE owner_id = ' || ownerID || ' AND peer_name_id = ' || peer_nameID || ' AND peer_server_id = ' || peer_serverID || ' AND at = ''' || atdate || ''') WHERE owner_id = ' || ownerID || ' AND peer_name_id = ' || peer_nameID || ' AND peer_server_id = ' || peer_serverID || ' AND at = ''' || atdate || '''';
 
+   EXECUTE 'UPDATE ~s SET emoji_count = (SELECT coalesce(sum(emoji_count), 0) AS emoji_count FROM ' || tablename || ' WHERE owner_id = ' || ownerID || ' AND peer_name_id = ' || peer_nameID || ' AND peer_server_id = ' || peer_serverID || ' AND at = ''' || atdate || ''') WHERE owner_id = ' || ownerID || ' AND peer_name_id = ' || peer_nameID || ' AND peer_server_id = ' || peer_serverID || ' AND at = ''' || atdate || '''';
+
    RETURN 0;
 END;
 $$ LANGUAGE plpgsql;
-", [logmessage_name(VHost,Schema),UName,UName,UName,UName,SName,SName,RName,RName,Schema,escape_vhost(VHost),UName,UName,SName,RName,StName,StName,StName]).
+", [logmessage_name(VHost,Schema),UName,UName,UName,UName,SName,SName,RName,RName,Schema,escape_vhost(VHost),UName,UName,SName,RName,StName,StName,StName,StName]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
